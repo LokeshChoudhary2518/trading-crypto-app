@@ -4,20 +4,26 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.authentication.switchuser.AuthenticationSwitchUserEvent;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.trading.crypto.config.JwtProvider;
+import com.trading.crypto.models.TwoFactorOTP;
 import com.trading.crypto.models.User;
 import com.trading.crypto.repositories.UserRepo;
 import com.trading.crypto.response.AuthResponse;
+import com.trading.crypto.response.TwoFactorOtpRepository;
 import com.trading.crypto.services.CustomeUserDetailsService;
+import com.trading.crypto.services.TwoFactorOtpService;
+import com.trading.crypto.utils.OtpUtils;
 
 @RestController
 @RequestMapping("/auth")
@@ -28,6 +34,9 @@ public class AuthController {
 
 	@Autowired
 	private CustomeUserDetailsService customeUserDetailsService;
+
+	@Autowired
+	private TwoFactorOtpService twoFactorOtpService;
 
 	@PostMapping("/singup")
 	public ResponseEntity<AuthResponse> register(@RequestBody User user) throws Exception {
@@ -72,6 +81,30 @@ public class AuthController {
 		SecurityContextHolder.getContext().setAuthentication(auth);
 
 		String jwt = JwtProvider.generateToken(auth);
+
+		User authUser = userRepository.findByEmail(userName);
+
+		if (user.getTwoFactorAuth().isEnabled()) {
+			AuthResponse res = new AuthResponse();
+
+			res.setMessage("Two Factor auth is enabled");
+			res.setTwoFactorAuthEnabled(true);
+
+			String otp = OtpUtils.generateOtp();
+
+			TwoFactorOTP oldTwoFactorOTP = twoFactorOtpService.findByUser(authUser.getId());
+			if (oldTwoFactorOTP != null) {
+				twoFactorOtpService.deleteTwoFactorOtp(oldTwoFactorOTP);
+
+			}
+
+			TwoFactorOTP newTwoFacctorOTP = twoFactorOtpService.createTwoFactorOtp(authUser, otp, jwt);
+
+			res.setSession(newTwoFacctorOTP.getId());
+
+			return new ResponseEntity<>(res, HttpStatus.ACCEPTED);
+
+		}
 
 		AuthResponse res = new AuthResponse();
 		res.setJwt(jwt);
